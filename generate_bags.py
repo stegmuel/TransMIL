@@ -66,6 +66,7 @@ def get_bags(args):
             # Save the embeddings
             image_name = image_path.split('/')[-1].split('.')[0]
             intermediate_dir = '/'.join(image_path.split('/')[7: 9])
+            print(intermediate_dir)
             intermediate_dir = os.path.join(args.output_dir, intermediate_dir)
             for j, embedding in enumerate(embeddings.unbind()):
                 tile_index = i * args.batch_size + j
