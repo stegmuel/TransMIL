@@ -17,6 +17,7 @@ class BracsTilesDataset(Dataset):
         super(BracsTilesDataset, self).__init__()
 
         # Store basic parameters
+        self.class_dict = CLASS_DICT
         self.filepaths = [f for q in queries for f in glob(q)]
         self.image_tiles = {}
         self.image_names = []
@@ -24,9 +25,9 @@ class BracsTilesDataset(Dataset):
             image_name = '_'.join(f.split('/')[-1].split('.')[0].split('_')[:-1])
             if image_name in self.image_tiles.keys():
                 self.image_tiles[image_name].append(f)
-                self.image_names.append(image_name)
             else:
                 self.image_tiles[image_name] = [f]
+                self.image_names.append(image_name)
 
     def __len__(self):
         return len(self.image_names)
@@ -36,11 +37,14 @@ class BracsTilesDataset(Dataset):
         image_name = self.image_names[index]
         
         # Load all the tiles of the image
-        tiles = [np.load(f) for f in self.image_tiles[image_name]]
-        return tiles
+        tiles = np.array([np.load(f) for f in self.image_tiles[image_name]])
+
+        # Get the label
+        label = CLASS_DICT[self.image_tiles[image_name][0].split('/')[-2]]
+        return torch.tensor(tiles), torch.tensor(label)
         
 
 if __name__ == '__main__':
     dataset = BracsTilesDataset(queries=['/media/thomas/Samsung_T5/BRACS/BRACS_bags/val/*/*.npy'])
-    print(dataset.__getitem__(0))
+    print(dataset.__getitem__(0)[1])
     

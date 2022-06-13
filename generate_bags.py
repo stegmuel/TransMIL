@@ -18,7 +18,7 @@ def get_args_parser():
     parser.add_argument('--output_dir', default='/media/thomas/Samsung_T5/BRACS/BRACS_bags', type=str,
                         help='Please specify path to the output dir.')
     parser.add_argument('--patch_size', default=256, type=str, help='Please specify the patch size.')
-    parser.add_argument('--batch_size', default=8, type=str, help='Please specify the patch size.')
+    parser.add_argument('--batch_size', default=64, type=str, help='Please specify the patch size.')
     return parser
 
 
@@ -59,6 +59,8 @@ def get_bags(args):
 
         # Iterate over the batches
         for i, batch in enumerate(batches):
+            if i > 1:
+                continue
             # Get the batch's embeddings
             with torch.no_grad():
                 embeddings = model(batch.cuda())
@@ -66,7 +68,6 @@ def get_bags(args):
             # Save the embeddings
             image_name = image_path.split('/')[-1].split('.')[0]
             intermediate_dir = '/'.join(image_path.split('/')[7: 9])
-            print(intermediate_dir)
             intermediate_dir = os.path.join(args.output_dir, intermediate_dir)
             for j, embedding in enumerate(embeddings.unbind()):
                 tile_index = i * args.batch_size + j

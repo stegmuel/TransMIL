@@ -1,7 +1,11 @@
+from datasets.bracs_dataset import BracsTilesDataset
+from torch.utils.data import DataLoader
 from models.TransMIL import TransMIL
+from sklearn.metrics import f1_score
 import numpy as np
 import argparse
 import logging
+import wandb
 import torch
 
 
@@ -13,9 +17,11 @@ def get_args_parser():
                         type=str, help='Please specify path to the validation data.')
     parser.add_argument('--test_queries', default=['/media/thomas/Samsung_T5/BRACS/BRACS_bags/test/*/*.npy'],
                         type=str, help='Please specify path to the validation data.')
-    parser.add_argument('--output_dir', default='/media/thomas/Samsung_T5/BRACS/BRACS_bags', type=str,
-                        help='Please specify path to the output dir.')
+    parser.add_argument('--output_dir', default='output', type=str, help='Please specify path to the output dir.')
+    parser.add_argument('--logger', default='logs/log.txt', type=str, help='Please specify path to the logs dir.')
     parser.add_argument('--batch_size', default=1, type=str, help='Please specify the patch size.')
+    parser.add_argument('--n_classes', default=7, type=str, help='Please specify the number of classes.')
+    parser.add_argument('--epochs', default=10, type=str, help='Please specify the number of epochs.')
     return parser
 
 
@@ -49,26 +55,37 @@ def get_logger(logfile):
 
 
 def train_mil(args):
+    # Login to wandb
+    wandb.init(project='trans-mil', entity='stegmuel')
+    wandb.config.update(args)
+    args = wandb.config
+
     # Get the datasets
-    train_dataset =
-    train_loader =
-    val_dataset =
-    val_loader =
+    def my_collate(batch):
+        samples, labels = list(*batch)
+        return samples[None, :], labels
+
+    # Get the datasets and loader
+    train_dataset = BracsTilesDataset(args.train_queries)
+    train_loader = DataLoader(train_dataset, collate_fn=my_collate)
+    val_dataset = BracsTilesDataset(args.val_queries)
+    val_loader = DataLoader(val_dataset, collate_fn=my_collate)
+    test_dataset = BracsTilesDataset(args.test_queries)
+    test_loader = DataLoader(test_dataset, collate_fn=my_collate)
 
     # Get the model
-    model =
+    model = TransMIL(args.n_classes).cuda()
 
     # Get the optimizer
-    optimizer =
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=1e-3)
     scheduler = None
 
     # Set the loss
-    criterion =
+    criterion = torch.nn.CrossEntropyLoss()
 
     # Loss function and stored losses
     best_valid_f1_score = 0.
     losses = {'train': [], 'valid': []}
-    batch_losses = {'train': [], 'valid': []}
     accuracies = {'train': [], 'valid': []}
     f1_scores = {'weighted': [], 'class': []}
 
@@ -97,10 +114,10 @@ def train_mil(args):
 
             # Store the batch losses
             batch_losses.append(loss)
-            batch_losses['train'].append(loss)
+            batch_losses.append(loss)
 
             # Display status
-            display_rate = 10
+            display_rate = 100
             if j % display_rate == 0:
                 n_batches = len(train_loader.dataset) // train_loader.batch_size
                 message = 'epoch: {}/{}, batch {}/{}: \n' \
@@ -121,15 +138,23 @@ def train_mil(args):
         # Compute the current epoch's accuracy
         accuracies['train'].append(total_corrects / total_samples)
 
+        # Wandb logging
+        wandb.log({"train loss": losses['train'][-1], 'train acc': accuracies['train']})
+
         # Evaluate the model
         with torch.no_grad():
-            test_mil(model, val_loader)
+            test_mil(model, val_loader, logger, criterion)
 
         # Terminate epoch
         # self.on_epoch_end(end_epoch)
 
     # Save the final state
     # self.save(True)
+
+    # Test
+    logger.debug('About to test the trained model.'.format(args.epochs))
+    with torch.no_grad():
+        test_mil(model, test_loader, logger, criterion)
 
 
 def train_step(model, optimizer, batch, criterion):
@@ -149,7 +174,7 @@ def train_step(model, optimizer, batch, criterion):
     _, predicted = torch.max(outputs.data, 1)
 
     # Compute the loss as a convex combination
-    loss = criterion(outputs, labels)
+    loss = criterion(outputs, labels.unsqueeze(0))
 
     # Compute the #correct predictions
     n_corrects = predicted.eq(labels.data).cpu().sum().float()
@@ -166,7 +191,7 @@ def train_step(model, optimizer, batch, criterion):
     return loss.item(), n_samples, n_corrects
 
 
-def test_mil(args, model, loader):
+def test_mil(model, loader, logger, criterion, flag='val'):
     """
     Evaluates the performance of the model on the validation set.
     :param: result_savepath: location where to save model's predictions.
@@ -179,40 +204,51 @@ def test_mil(args, model, loader):
     logger.debug('Starting the evaluation on the test set.')
 
     # Iterate over the batches in the validation set
-    total_corrects, total_samples, predictions, targets = 0, 0, [], []
+    total_corrects, total_samples, predictions, targets, losses = 0, 0, [], [], []
     for batch in loader:
         # Move data to device
         samples, labels = batch
         samples = samples.cuda()
-        labels = labels.cuda()
+        labels = labels.cuda().unsqueeze(0)
 
         # Store the targets
         targets.append(labels.cpu())
 
         # Get the predictions
         outputs = model(samples)
+        predicted = outputs.argmax(dim=-1)
+        losses.append(criterion(outputs, labels))
 
         # Store the predictions
         predictions.append(torch.argmax(outputs, dim=-1).cpu())
 
         # Compute the accuracy
-        total_corrects += correct_predictions(outputs, labels)
+        total_corrects += predicted.eq(labels.data).cpu().sum().float()
         total_samples += outputs.shape[0]
 
     # Compute the F1-scores
     predictions = torch.cat(predictions)
     targets = torch.cat(targets)
-    weighted_test_f1_score = f1_score(targets, predictions, average='weighted')
-    class_test_f1_score = f1_score(targets, predictions, average=None)
+    weighted_f1 = f1_score(targets, predictions, average='weighted')
+    class_f1 = f1_score(targets, predictions, average=None)
 
-    # Display the F1-score
-    message = 'test: f1-score: {:.2e}'.format(weighted_test_f1_score)
-    logger.debug(message)
+    # Wandb logging
+    wandb_dict = {
+        f"{flag} loss": losses[-1],
+        f"{flag} f1": weighted_f1,
+    }
 
     # Add the class F1-scores
-    for k, v in zip(loader.dataset.class_dict.keys(), class_test_f1_score):
-        message = 'test: f1-score for class {}: {:.2e}'.format(k, v)
+    for k, v in zip(loader.dataset.class_dict.keys(), class_f1):
+        wandb_dict[k] = v
+        message = f"{flag}: f1-score for class {k}: {v}"
         logger.debug(message)
+    wandb.log(wandb_dict)
+
+    # Display the F1-score
+    message = f"{flag}: f1-score: {weighted_f1}"
+    logger.debug(message)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Data', parents=[get_args_parser()])
