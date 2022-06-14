@@ -21,7 +21,6 @@ def get_args_parser():
     parser.add_argument('--test_queries', default=['/media/thomas/Samsung_T5/BRACS/BRACS_bags/test/*/*.npy'],
                         type=str, help='Please specify path to the validation data.')
     parser.add_argument('--output_dir', default='output', type=str, help='Please specify path to the output dir.')
-    parser.add_argument('--logger', default='logs/log.txt', type=str, help='Please specify path to the logs dir.')
     parser.add_argument('--batch_size', default=1, type=str, help='Please specify the patch size.')
     parser.add_argument('--n_classes', default=7, type=str, help='Please specify the number of classes.')
     parser.add_argument('--epochs', default=10, type=str, help='Please specify the number of epochs.')
@@ -99,7 +98,7 @@ def train_mil(args):
     accuracies = {'train': [], 'valid': []}
 
     # Get the logger
-    logger = get_logger(args.logger)
+    logger = get_logger(args.output_dir)
 
     # Train
     logger.debug('About to train for {} epochs.'.format(args.epochs))
