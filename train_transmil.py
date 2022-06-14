@@ -5,8 +5,10 @@ from sklearn.metrics import f1_score
 import numpy as np
 import argparse
 import logging
+import random
 import wandb
 import torch
+import os
 
 
 def get_args_parser():
@@ -18,10 +20,12 @@ def get_args_parser():
     parser.add_argument('--test_queries', default=['/media/thomas/Samsung_T5/BRACS/BRACS_bags/test/*/*.npy'],
                         type=str, help='Please specify path to the validation data.')
     parser.add_argument('--output_dir', default='output', type=str, help='Please specify path to the output dir.')
+    parser.add_argument('--checkpoint_name', default='checkpoint_40_0', type=str, help='Please specify path to the output dir.')
     parser.add_argument('--logger', default='logs/log.txt', type=str, help='Please specify path to the logs dir.')
     parser.add_argument('--batch_size', default=1, type=str, help='Please specify the patch size.')
     parser.add_argument('--n_classes', default=7, type=str, help='Please specify the number of classes.')
     parser.add_argument('--epochs', default=10, type=str, help='Please specify the number of epochs.')
+    parser.add_argument('--seed', default=0, type=str, help='Please specify the seed.')
     return parser
 
 
@@ -55,6 +59,12 @@ def get_logger(logfile):
 
 
 def train_mil(args):
+    # Set the seed
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+
     # Login to wandb
     wandb.init(project='trans-mil', entity='stegmuel')
     wandb.config.update(args)
@@ -67,7 +77,7 @@ def train_mil(args):
 
     # Get the datasets and loader
     train_dataset = BracsTilesDataset(args.train_queries)
-    train_loader = DataLoader(train_dataset, collate_fn=my_collate)
+    train_loader = DataLoader(train_dataset, collate_fn=my_collate, shuffle=True)
     val_dataset = BracsTilesDataset(args.val_queries)
     val_loader = DataLoader(val_dataset, collate_fn=my_collate)
     test_dataset = BracsTilesDataset(args.test_queries)
@@ -84,10 +94,9 @@ def train_mil(args):
     criterion = torch.nn.CrossEntropyLoss()
 
     # Loss function and stored losses
-    best_valid_f1_score = 0.
+    best_val_f1 = 0.
     losses = {'train': [], 'valid': []}
     accuracies = {'train': [], 'valid': []}
-    f1_scores = {'weighted': [], 'class': []}
 
     # Get the logger
     logger = get_logger(args.logger)
@@ -143,18 +152,41 @@ def train_mil(args):
 
         # Evaluate the model
         with torch.no_grad():
-            test_mil(model, val_loader, logger, criterion)
+            val_f1 = test_mil(model, val_loader, logger, criterion, flag='val')
+            save(model, args, val_f1 > best_val_f1)
 
-        # Terminate epoch
-        # self.on_epoch_end(end_epoch)
-
-    # Save the final state
-    # self.save(True)
+    # Re-load the best model
+    logger.debug('Re-loading best weights for the evaluation on the test set.'.format(args.epochs))
+    model = load(model, args)
 
     # Test
     logger.debug('About to test the trained model.'.format(args.epochs))
     with torch.no_grad():
-        test_mil(model, test_loader, logger, criterion)
+        test_mil(model, test_loader, logger, criterion, flag='val')
+
+
+def save(model, args, is_best):
+    # Prepare the dictionary
+    save_dict = {
+        'model_state_dict': model.state_dict()
+    }
+
+    # The model is overwritten at the end of every epoch
+    savepath = os.path.join(args.output_dir, f"{args.checkpoint_name}.pth")
+    torch.save(save_dict, savepath)
+
+    # Save the best model
+    if is_best:
+        savepath = os.path.join(args.output_dir, f"{args.checkpoint_name}_best.pth")
+        torch.save(save_dict, savepath)
+
+
+def load(model, args):
+    # Load the best state dict
+    loadpath = os.path.join(args.output_dir, f"{args.checkpoint_name}_best.pth")
+    checkpoint = torch.load(loadpath, map_location='cuda')
+    model.load_state_dict(checkpoint['model_state_dict'])
+    return model
 
 
 def train_step(model, optimizer, batch, criterion):
@@ -201,7 +233,7 @@ def test_mil(model, loader, logger, criterion, flag='val'):
     model.eval()
 
     # Display start message
-    logger.debug('Starting the evaluation on the test set.')
+    logger.debug(f"Starting the evaluation on the {flag} set.")
 
     # Iterate over the batches in the validation set
     total_corrects, total_samples, predictions, targets, losses = 0, 0, [], [], []
@@ -248,6 +280,7 @@ def test_mil(model, loader, logger, criterion, flag='val'):
     # Display the F1-score
     message = f"{flag}: f1-score: {weighted_f1}"
     logger.debug(message)
+    return weighted_f1
 
 
 if __name__ == '__main__':
