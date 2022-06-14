@@ -153,6 +153,8 @@ def train_mil(args):
         with torch.no_grad():
             val_f1 = test_mil(model, val_loader, logger, criterion, flag='val')
             save(model, args, val_f1 > best_val_f1, logger)
+            if val_f1 > best_val_f1:
+                best_val_f1 = val_f1
 
     # Re-load the best model
     logger.debug('Re-loading best weights for the evaluation on the test set.'.format(args.epochs))
