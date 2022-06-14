@@ -23,8 +23,8 @@ def get_args_parser():
     parser.add_argument('--output_dir', default='output', type=str, help='Please specify path to the output dir.')
     parser.add_argument('--batch_size', default=1, type=str, help='Please specify the patch size.')
     parser.add_argument('--n_classes', default=7, type=str, help='Please specify the number of classes.')
-    parser.add_argument('--epochs', default=10, type=str, help='Please specify the number of epochs.')
-    parser.add_argument('--seed', default=0, type=str, help='Please specify the seed.')
+    parser.add_argument('--epochs', default=10, type=int, help='Please specify the number of epochs.')
+    parser.add_argument('--seed', default=0, type=int, help='Please specify the seed.')
     return parser
 
 
@@ -98,7 +98,7 @@ def train_mil(args):
     accuracies = {'train': [], 'valid': []}
 
     # Get the logger
-    logger = get_logger(args.output_dir)
+    logger = get_logger(os.path.join(args.output_dir, "log.txt"))
 
     # Train
     logger.debug('About to train for {} epochs.'.format(args.epochs))
