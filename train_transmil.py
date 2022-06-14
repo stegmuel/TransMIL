@@ -2,6 +2,7 @@ from datasets.bracs_dataset import BracsTilesDataset
 from torch.utils.data import DataLoader
 from models.TransMIL import TransMIL
 from sklearn.metrics import f1_score
+from pathlib import Path
 import numpy as np
 import argparse
 import logging
@@ -20,7 +21,6 @@ def get_args_parser():
     parser.add_argument('--test_queries', default=['/media/thomas/Samsung_T5/BRACS/BRACS_bags/test/*/*.npy'],
                         type=str, help='Please specify path to the validation data.')
     parser.add_argument('--output_dir', default='output', type=str, help='Please specify path to the output dir.')
-    parser.add_argument('--checkpoint_name', default='checkpoint_40_0', type=str, help='Please specify path to the output dir.')
     parser.add_argument('--logger', default='logs/log.txt', type=str, help='Please specify path to the logs dir.')
     parser.add_argument('--batch_size', default=1, type=str, help='Please specify the patch size.')
     parser.add_argument('--n_classes', default=7, type=str, help='Please specify the number of classes.')
@@ -153,7 +153,7 @@ def train_mil(args):
         # Evaluate the model
         with torch.no_grad():
             val_f1 = test_mil(model, val_loader, logger, criterion, flag='val')
-            save(model, args, val_f1 > best_val_f1)
+            save(model, args, val_f1 > best_val_f1, logger)
 
     # Re-load the best model
     logger.debug('Re-loading best weights for the evaluation on the test set.'.format(args.epochs))
@@ -165,25 +165,26 @@ def train_mil(args):
         test_mil(model, test_loader, logger, criterion, flag='val')
 
 
-def save(model, args, is_best):
+def save(model, args, is_best, logger):
     # Prepare the dictionary
     save_dict = {
         'model_state_dict': model.state_dict()
     }
 
     # The model is overwritten at the end of every epoch
-    savepath = os.path.join(args.output_dir, f"{args.checkpoint_name}.pth")
+    savepath = os.path.join(args.output_dir, "checkpoint.pth")
     torch.save(save_dict, savepath)
 
     # Save the best model
     if is_best:
-        savepath = os.path.join(args.output_dir, f"{args.checkpoint_name}_best.pth")
+        savepath = os.path.join(args.output_dir, "best_checkpoint.pth")
         torch.save(save_dict, savepath)
+        logger.debug('Best weights saved for the evaluation on the test set.'.format(args.epochs))
 
 
 def load(model, args):
     # Load the best state dict
-    loadpath = os.path.join(args.output_dir, f"{args.checkpoint_name}_best.pth")
+    loadpath = os.path.join(args.output_dir, "best_checkpoint.pth")
     checkpoint = torch.load(loadpath, map_location='cuda')
     model.load_state_dict(checkpoint['model_state_dict'])
     return model
@@ -286,4 +287,5 @@ def test_mil(model, loader, logger, criterion, flag='val'):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Data', parents=[get_args_parser()])
     args = parser.parse_args()
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     train_mil(args)
