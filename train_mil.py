@@ -1,4 +1,5 @@
 from datasets.bracs_dataset import BracsTilesDataset
+from models.ClamMIL import CLAM_SB, CLAM_MB
 from torch.utils.data import DataLoader
 from models.TransMIL import TransMIL
 from sklearn.metrics import f1_score
@@ -25,6 +26,7 @@ def get_args_parser():
     parser.add_argument('--n_classes', default=7, type=str, help='Please specify the number of classes.')
     parser.add_argument('--epochs', default=10, type=int, help='Please specify the number of epochs.')
     parser.add_argument('--seed', default=0, type=int, help='Please specify the seed.')
+    parser.add_argument('--arch', default='clam-sb', type=str, help='Please specify the architecture to use.')
     return parser
 
 
@@ -65,7 +67,7 @@ def train_mil(args):
     torch.cuda.manual_seed(args.seed)
 
     # Login to wandb
-    wandb.init(project='trans-mil', entity='stegmuel')
+    wandb.init(project='clam-mil', entity='stegmuel')
     wandb.config.update(args)
     args = wandb.config
 
@@ -83,7 +85,12 @@ def train_mil(args):
     test_loader = DataLoader(test_dataset, collate_fn=my_collate)
 
     # Get the model
-    model = TransMIL(args.n_classes).cuda()
+    if args.arch == 'transmil':
+        model = TransMIL(args.n_classes).cuda()
+    elif args.arch == 'clam-sb':
+        model = CLAM_SB(n_classes=args.n_classes).cuda()
+    else:
+        model = CLAM_MB(n_classes=args.n_classes).cuda()
 
     # Get the optimizer
     optimizer = torch.optim.Adam(params=model.parameters(), lr=1e-3)
